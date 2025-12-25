@@ -1,0 +1,3 @@
+/home/ayush/option/OptionPricer/build/CMakeFiles/OptionPricer.dir
+/home/ayush/option/OptionPricer/build/CMakeFiles/edit_cache.dir
+/home/ayush/option/OptionPricer/build/CMakeFiles/rebuild_cache.dir

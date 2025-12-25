@@ -1,0 +1,63 @@
+#include <iostream>
+#include <vector>
+#include <cmath>
+#include <chrono>
+#include <mkl.h>
+#include <omp.h>
+
+// --- NAIVE VERSION ---
+double normal_cdf_naive(double x) {
+    return 0.5 * std::erfc(-x * M_SQRT1_2);
+}
+
+void price_naive(int n, double* S, double* K, double T, double r, double sigma, double* res) {
+    for (int i = 0; i < n; i++) {
+        double d1 = (std::log(S[i] / K[i]) + (r + 0.5 * sigma * sigma) * T) / (sigma * std::sqrt(T));
+        double d2 = d1 - sigma * std::sqrt(T);
+        res[i] = S[i] * normal_cdf_naive(d1) - K[i] * std::exp(-r * T) * normal_cdf_naive(d2);
+    }
+}
+
+// --- OPTIMIZED HPC VERSION ---
+void price_hpc_optimized(int n, double* S, double* K, double T, double r, double sigma, 
+                        double* res, double* d1_b, double* d2_b, double* c1_b, double* c2_b) {
+    vmlSetMode(VML_EP); 
+    double sig_sqrt_T = sigma * std::sqrt(T);
+    double df = std::exp(-r * T);
+    double mu = (r + 0.5 * sigma * sigma) * T;
+
+    #pragma omp parallel for
+    for (int i = 0; i < n; i++) {
+        d1_b[i] = (std::log(S[i] / K[i]) + mu) / sig_sqrt_T;
+        d2_b[i] = d1_b[i] - sig_sqrt_T;
+    }
+    vdCdfNorm(n, d1_b, c1_b);
+    vdCdfNorm(n, d2_b, c2_b);
+
+    #pragma omp parallel for
+    for (int i = 0; i < n; i++) {
+        res[i] = S[i] * c1_b[i] - K[i] * df * c2_b[i];
+    }
+}
+
+int main() {
+    const int N = 10000000;
+    std::vector<double> S(N, 100.0), K(N, 105.0), res_n(N), res_h(N);
+    std::vector<double> d1(N), d2(N), c1(N), c2(N);
+
+    // 1. Run Naive
+    auto s1 = std::chrono::high_resolution_clock::now();
+    price_naive(N, S.data(), K.data(), 1.0, 0.05, 0.2, res_n.data());
+    auto e1 = std::chrono::high_resolution_clock::now();
+
+    // 2. Run Optimized
+    auto s2 = std::chrono::high_resolution_clock::now();
+    price_hpc_optimized(N, S.data(), K.data(), 1.0, 0.05, 0.2, res_h.data(), 
+                        d1.data(), d2.data(), c1.data(), c2.data());
+    auto e2 = std::chrono::high_resolution_clock::now();
+
+    std::cout << "Naive: " << std::chrono::duration<double, std::milli>(e1 - s1).count() << " ms\n";
+    std::cout << "HPC:   " << std::chrono::duration<double, std::milli>(e2 - s2).count() << " ms\n";
+
+    return 0;
+}
